@@ -1,0 +1,24 @@
+[project]
+name = "mcp-alaiia"
+version = "0.1.0"
+description = "MCP tools for API testing automation: Swagger Analysis, Feature Generation, and JMeter Test Plan Generation"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.25.0",
+    "pyyaml>=6.0.1",
+    "dataclasses>=0.6",
+    "fastmcp>=2.0.0",
+    "pydantic>=2.0.0"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "DJ", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "ERA", "PGH", "PL", "TRY", "NPY", "RUF"]
+ignore = ["COM812", "ISC001"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]

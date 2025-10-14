@@ -1,0 +1,12 @@
+{
+	"servers": {
+		"my-mcp-server-alaiia": {
+			"type": "stdio",
+			"command": "python",
+			"args": [
+				"main.py"
+			]
+		}
+	},
+	"inputs": []
+}
