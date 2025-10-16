@@ -35,6 +35,12 @@ class CompleteWorkflowRequest(BaseModel):
     output_dir: Optional[str] = "./output"
 
 
+class CurlGeneratorRequest(BaseModel):
+    """Request model for cURL generation"""
+    swagger_data: dict
+    output_dir: Optional[str] = "./output"
+
+
 class AlaiiaMCPServer:
     """MCP Server for ALAIIA API Testing Tools"""
     
@@ -185,15 +191,66 @@ Complete Data (JSON):
                 return f"[ERROR] Error generating JMeter plan: {str(e)}"
         
         @self.mcp.tool()
+        async def curl_generator(request: CurlGeneratorRequest) -> str:
+            """
+            Generate cURL commands and Postman collection from Swagger analysis.
+
+            This tool creates ready-to-use cURL commands and Postman collections:
+            - Generates executable cURL commands for each endpoint
+            - Includes all headers and request bodies
+            - Creates Postman v2.1 collection for import
+            - Supports path parameter substitution
+            - Exports both .sh script and .json collection
+
+            Args:
+                request: CurlGeneratorRequest with swagger_data and output_dir
+
+            Returns:
+                cURL generation results with file paths
+            """
+            try:
+                result = await self.orchestrator.generate_curl_from_swagger(
+                    request.swagger_data,
+                    request.output_dir
+                )
+                
+                if result["success"]:
+                    data = result["data"]
+                    return f"""[SUCCESS] cURL Generation Completed Successfully!
+
+Generation Results:
+• Total Commands: {data['total_commands']}
+• Base URL: {data['base_url']}
+• Collection Name: {data['collection_name']}
+
+Generated Files:
+• cURL Script: {data['curl_file']}
+• Postman Collection: {data['postman_file']}
+
+You can:
+1. Execute cURL commands: bash {data['curl_file']}
+2. Import to Postman: File → Import → {data['postman_file']}
+
+Complete Data (JSON):
+{json.dumps(result, indent=2)}
+"""
+                else:
+                    return f"[ERROR] Generation Failed: {result.get('message', 'Unknown error')}"
+                    
+            except Exception as e:
+                return f"[ERROR] Error generating cURL commands: {str(e)}"
+        
+        @self.mcp.tool()
         async def complete_workflow(request: CompleteWorkflowRequest) -> str:
             """
-            Execute complete workflow: Swagger Analysis → Feature Generation → JMeter Generation.
+            Execute complete workflow: Swagger Analysis → Feature Generation → JMeter Generation → cURL Generation.
 
             This tool executes the full ALAIIA pipeline in one operation:
             1. Analyzes the Swagger/OpenAPI specification
             2. Generates Karate DSL .feature files
             3. Creates JMeter .jmx test plans (both from Swagger and Features)
-            4. Saves all artifacts to the specified output directory
+            4. Generates cURL commands and Postman collection
+            5. Saves all artifacts to the specified output directory
 
             Args:
                 request: CompleteWorkflowRequest with swagger_url and output_dir
@@ -232,12 +289,22 @@ JMeter Generation:"""
                         jmeter_features = data['jmeter_from_features']
                         summary += f"\n• From Features: {jmeter_features['total_requests']} requests"
                     
+                    # Add cURL generation info
+                    if data.get('curl_generation'):
+                        curl_data = data['curl_generation']
+                        summary += f"""
+
+cURL Generation:
+• Commands Generated: {curl_data['total_commands']}
+• cURL Script: {curl_data['curl_file']}
+• Postman Collection: {curl_data['postman_file']}"""
+                    
                     summary += f"""
 
 Output Directory: {request.output_dir}
 
 All artifacts generated successfully!
-Check the output directory for .feature and .jmx files.
+Check the output directory for .feature, .jmx, .sh and .json files.
 
 Complete Data (JSON):
 {json.dumps(result, indent=2)}

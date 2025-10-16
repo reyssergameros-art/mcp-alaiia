@@ -25,10 +25,12 @@ def main():
         print("   * swagger_analysis    - Analyze Swagger/OpenAPI specifications")
         print("   * feature_generator   - Generate Karate DSL .feature files")
         print("   * jmeter_generator    - Generate JMeter .jmx test plans")
+        print("   * curl_generator      - Generate cURL commands & Postman collections")
         print("   * complete_workflow   - Execute full pipeline")
         print("\nOptimized workflow:")
         print("   swagger_analysis -> feature_generator")
         print("   swagger_analysis -> jmeter_generator")
+        print("   swagger_analysis -> curl_generator")
         print("   complete_workflow (all in one)")
         print("=" * 60)
         

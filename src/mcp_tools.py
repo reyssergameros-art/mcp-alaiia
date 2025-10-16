@@ -12,6 +12,8 @@ from src.tools.feature_generator.application.services import FeatureGenerationSe
 from src.tools.feature_generator.infrastructure.repositories import KarateFeatureRepository
 from src.tools.jmeter_generator.application.services import JMeterGenerationService
 from src.tools.jmeter_generator.infrastructure.repositories import XmlJMeterRepository
+from src.tools.curl_generator.application.services import CurlGenerationService
+from src.tools.curl_generator.infrastructure.repositories import JsonCurlRepository
 
 
 class MCPToolsOrchestrator:
@@ -22,11 +24,13 @@ class MCPToolsOrchestrator:
         self.swagger_repo = HttpSwaggerRepository()
         self.feature_repo = KarateFeatureRepository()
         self.jmeter_repo = XmlJMeterRepository()
+        self.curl_repo = JsonCurlRepository()
         
         # Initialize services
         self.swagger_service = SwaggerAnalysisService(self.swagger_repo)
         self.feature_service = FeatureGenerationService(self.feature_repo)
         self.jmeter_service = JMeterGenerationService(self.jmeter_repo)
+        self.curl_service = CurlGenerationService(self.curl_repo)
     
     async def analyze_swagger_from_url(self, swagger_url: str) -> Dict[str, Any]:
         """
@@ -245,16 +249,67 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate JMeter test plan from features"
             }
     
+    async def generate_curl_from_swagger(self, swagger_data: Dict[str, Any], output_dir: str = "./output") -> Dict[str, Any]:
+        """
+        Tool 4: Generate cURL commands and Postman collection from swagger analysis.
+        
+        Args:
+            swagger_data: Swagger analysis result from tool 1
+            output_dir: Directory to save generated files (optional)
+            
+        Returns:
+            cURL generation result with file paths
+        """
+        try:
+            # Use cURL generation service
+            result = await self.curl_service.generate_from_swagger(swagger_data)
+            
+            # Prepare output file paths
+            curl_file = os.path.join(output_dir, "curl_commands.sh")
+            postman_file = os.path.join(output_dir, "postman_collection.json")
+            
+            # Save cURL commands
+            curl_path = await self.curl_service.export_curl_commands(
+                result.curl_commands,
+                curl_file
+            )
+            
+            # Save Postman collection
+            postman_path = await self.curl_service.export_postman_collection(
+                result.postman_collection,
+                postman_file
+            )
+            
+            return {
+                "success": True,
+                "data": {
+                    "total_commands": result.total_commands,
+                    "base_url": result.base_url,
+                    "curl_file": curl_path,
+                    "postman_file": postman_path,
+                    "collection_name": result.postman_collection.name,
+                    "summary": result.get_summary()
+                },
+                "message": f"Successfully generated {result.total_commands} cURL commands and Postman collection"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to generate cURL commands"
+            }
+    
     async def complete_workflow(self, swagger_url: str, output_dir: str = "./output") -> Dict[str, Any]:
         """
-        Complete workflow: Swagger -> Features -> JMeter.
+        Complete workflow: Swagger -> Features -> JMeter -> cURL.
         
         Args:
             swagger_url: URL to the swagger/OpenAPI specification
             output_dir: Directory to save all output files
             
         Returns:
-            Complete workflow result
+            Complete workflow result with all generated artifacts
         """
         try:
             os.makedirs(output_dir, exist_ok=True)
@@ -282,6 +337,9 @@ class MCPToolsOrchestrator:
             jmx_from_features_file = os.path.join(output_dir, "test_plan_from_features.jmx")
             jmeter_features_result = await self.generate_jmeter_from_features(features_data, jmx_from_features_file)
             
+            # Step 4: Generate cURL commands and Postman collection
+            curl_result = await self.generate_curl_from_swagger(swagger_data, output_dir)
+            
             return {
                 "success": True,
                 "data": {
@@ -289,6 +347,7 @@ class MCPToolsOrchestrator:
                     "features_generation": features_data,
                     "jmeter_from_swagger": jmeter_swagger_result["data"] if jmeter_swagger_result["success"] else None,
                     "jmeter_from_features": jmeter_features_result["data"] if jmeter_features_result["success"] else None,
+                    "curl_generation": curl_result["data"] if curl_result["success"] else None,
                     "output_directory": output_dir
                 },
                 "message": "Complete workflow executed successfully"

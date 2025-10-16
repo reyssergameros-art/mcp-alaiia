@@ -2,8 +2,9 @@
 	"servers": {
 		"my-mcp-server-alaiia": {
 			"type": "stdio",
-			"command": "python",
+			"command": "uv",
 			"args": [
+				"run",
 				"main.py"
 			]
 		}
