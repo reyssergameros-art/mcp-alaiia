@@ -49,6 +49,47 @@ class SwaggerAnalysisService:
             "response_codes": self._get_unique_response_codes(result)
         }
     
+    def convert_field_info_to_dict(self, field_info) -> Dict[str, Any]:
+        """
+        Convert FieldInfo domain model to dictionary for serialization.
+        
+        Args:
+            field_info: FieldInfo domain model
+            
+        Returns:
+            Dictionary representation
+        """
+        return {
+            "name": field_info.name,
+            "data_type": field_info.data_type,
+            "required": field_info.required,
+            "format": field_info.format.value if hasattr(field_info.format, 'value') else str(field_info.format),
+            "description": field_info.description,
+            "example": field_info.example,
+            "enum_values": field_info.enum_values,
+            "pattern": field_info.pattern,
+            "minimum": field_info.minimum,
+            "maximum": field_info.maximum
+        }
+    
+    def convert_response_info_to_dict(self, response_info) -> Dict[str, Any]:
+        """
+        Convert ResponseInfo domain model to dictionary for serialization.
+        
+        Args:
+            response_info: ResponseInfo domain model
+            
+        Returns:
+            Dictionary representation
+        """
+        return {
+            "status_code": response_info.status_code,
+            "description": response_info.description,
+            "content_type": response_info.content_type,
+            "schema": response_info.schema,
+            "example": response_info.example
+        }
+    
     def _count_endpoints_by_method(self, result: SwaggerAnalysisResult) -> Dict[str, int]:
         """Count endpoints by HTTP method."""
         method_count = {}

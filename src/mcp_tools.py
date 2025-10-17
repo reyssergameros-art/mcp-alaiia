@@ -62,7 +62,7 @@ class MCPToolsOrchestrator:
                 "endpoints": []
             }
             
-            # Convert endpoints
+            # Convert endpoints using service method
             for endpoint in result.endpoints:
                 endpoint_dict = {
                     "method": endpoint.method,
@@ -71,12 +71,12 @@ class MCPToolsOrchestrator:
                     "description": endpoint.description,
                     "operation_id": endpoint.operation_id,
                     "tags": endpoint.tags,
-                    "headers": [self._field_info_to_dict(h) for h in endpoint.headers],
-                    "path_parameters": [self._field_info_to_dict(p) for p in endpoint.path_parameters],
-                    "query_parameters": [self._field_info_to_dict(q) for q in endpoint.query_parameters],
-                    "request_body": {k: self._field_info_to_dict(v) for k, v in endpoint.request_body.items()} if endpoint.request_body else None,
+                    "headers": [self.swagger_service.convert_field_info_to_dict(h) for h in endpoint.headers],
+                    "path_parameters": [self.swagger_service.convert_field_info_to_dict(p) for p in endpoint.path_parameters],
+                    "query_parameters": [self.swagger_service.convert_field_info_to_dict(q) for q in endpoint.query_parameters],
+                    "request_body": {k: self.swagger_service.convert_field_info_to_dict(v) for k, v in endpoint.request_body.items()} if endpoint.request_body else None,
                     "request_content_type": endpoint.request_content_type,
-                    "responses": [self._response_info_to_dict(r) for r in endpoint.responses]
+                    "responses": [self.swagger_service.convert_response_info_to_dict(r) for r in endpoint.responses]
                 }
                 result_dict["endpoints"].append(endpoint_dict)
             
@@ -310,7 +310,7 @@ class MCPToolsOrchestrator:
         
         This method:
         1. Parses the cURL command
-        2. Converts to swagger-compatible format
+        2. Converts to swagger-compatible format using dedicated mapper
         3. REUSES feature_generator (without modification)
         4. REUSES jmeter_generator (without modification)
         
@@ -327,8 +327,8 @@ class MCPToolsOrchestrator:
             # Step 1: Parse cURL
             parse_result = await self.curl_parser_service.parse_curl(curl_command)
             
-            # Step 2: Convert to swagger-compatible format
-            swagger_data = parse_result.to_swagger_data()
+            # Step 2: Convert to swagger-compatible format using mapper
+            swagger_data = self.curl_parser_service.convert_to_swagger(parse_result)
             
             # Step 3: Generate features using EXISTING generator
             features_dir = os.path.join(output_dir, "features")
@@ -416,31 +416,6 @@ class MCPToolsOrchestrator:
                 "error": str(e),
                 "message": "Failed to execute complete workflow"
             }
-    
-    def _field_info_to_dict(self, field_info) -> Dict[str, Any]:
-        """Convert FieldInfo to dictionary."""
-        return {
-            "name": field_info.name,
-            "data_type": field_info.data_type,
-            "required": field_info.required,
-            "format": field_info.format.value if hasattr(field_info.format, 'value') else str(field_info.format),
-            "description": field_info.description,
-            "example": field_info.example,
-            "enum_values": field_info.enum_values,
-            "pattern": field_info.pattern,
-            "minimum": field_info.minimum,
-            "maximum": field_info.maximum
-        }
-    
-    def _response_info_to_dict(self, response_info) -> Dict[str, Any]:
-        """Convert ResponseInfo to dictionary."""
-        return {
-            "status_code": response_info.status_code,
-            "description": response_info.description,
-            "content_type": response_info.content_type,
-            "schema": response_info.schema,
-            "example": response_info.example
-        }
 
 
 # CLI interface for testing
