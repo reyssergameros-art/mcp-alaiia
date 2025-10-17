@@ -47,6 +47,14 @@ class CurlToTestsRequest(BaseModel):
     output_dir: Optional[str] = "./output"
 
 
+class KarateJavaProjectRequest(BaseModel):
+    """Request model for Karate Java project generation"""
+    swagger_url: Optional[str] = None
+    curl_command: Optional[str] = None
+    output_dir: Optional[str] = "./output/karate-project"
+    config: Optional[dict] = None
+
+
 class AlaiiaMCPServer:
     """MCP Server for ALAIIA API Testing Tools"""
     
@@ -311,6 +319,104 @@ Complete Data (JSON):
                     
             except Exception as e:
                 return f"[ERROR] Error: {str(e)}"
+        
+        @self.mcp.tool()
+        async def karate_java_project(request: KarateJavaProjectRequest) -> str:
+            """
+            Generate complete Karate Java project ready for Maven execution.
+
+            This tool creates a complete Java + Karate testing project:
+            - Maven project structure (src/test/java, src/test/resources)
+            - Test runner classes (JUnit5 + Karate)
+            - Hooks for before/after suite and scenario
+            - Configuration classes (TestConfig)
+            - Utility classes (ApiHelper, DataGenerator)
+            - Karate feature files
+            - Maven pom.xml with dependencies
+            - karate-config.js for environment configuration
+            - Properties files for different environments
+            - logback-test.xml for logging
+            - README.md with usage instructions
+            - .gitignore
+
+            The generated project is ready to run with: mvn test
+
+            Args:
+                request: KarateJavaProjectRequest with swagger_url or curl_command, output_dir, and optional config
+
+            Returns:
+                Project generation results with summary
+            """
+            try:
+                result = await self.orchestrator.generate_karate_java_project(
+                    swagger_url=request.swagger_url,
+                    curl_command=request.curl_command,
+                    output_dir=request.output_dir,
+                    config=request.config
+                )
+                
+                if result["success"]:
+                    data = result["data"]
+                    summary_data = data['summary']
+                    files = data['files_generated']
+                    maven = data['maven_config']
+                    
+                    summary = f"""[SUCCESS] Karate Java Project Generated Successfully!
+
+Project Details:
+• Project Name: {summary_data['project_name']}
+• Location: {data['project_path']}
+• Java Version: {summary_data['java_version']}
+• Karate Version: {summary_data['karate_version']}
+• Base URL: {summary_data['base_url']}
+
+Files Generated:
+• Total Java Classes: {files['java_classes']}
+  - Test Runners: {files['test_runners']}
+  - Hooks: {files['hooks']}
+  - Config Classes: {files['config_classes']}
+  - Utilities: {files['utils']}
+• Feature Files: {files['features']}
+
+Maven Configuration:
+• Group ID: {maven['group_id']}
+• Artifact ID: {maven['artifact_id']}
+• Version: {maven['version']}
+
+Project Structure:
+{data['project_path']}/
+├── pom.xml
+├── README.md
+├── .gitignore
+└── src/
+    └── test/
+        ├── java/com/automation/
+        │   ├── runners/      (Test runners)
+        │   ├── hooks/        (Before/After hooks)
+        │   ├── config/       (Configuration)
+        │   └── utils/        (Helpers)
+        └── resources/
+            ├── features/     (Karate .feature files)
+            ├── data/         (Test data)
+            ├── config/       (Environment configs)
+            ├── karate-config.js
+            └── logback-test.xml
+
+How to Use:
+1. Navigate to project: cd {data['project_path']}
+2. Run tests: mvn test
+3. Run with specific env: mvn test -Dkarate.env=qa
+4. Run parallel: mvn test -Dkarate.options="--threads 5"
+
+Complete Data (JSON):
+{json.dumps(result, indent=2)}
+"""
+                    return summary
+                else:
+                    return f"[ERROR] Project Generation Failed: {result.get('message', 'Unknown error')}"
+                    
+            except Exception as e:
+                return f"[ERROR] Error generating Karate Java project: {str(e)}"
         
         @self.mcp.tool()
         async def complete_workflow(request: CompleteWorkflowRequest) -> str:

@@ -16,6 +16,8 @@ from src.tools.curl_generator.application.services import CurlGenerationService
 from src.tools.curl_generator.infrastructure.repositories import JsonCurlRepository
 from src.tools.curl_parser.application.services import CurlParsingService
 from src.tools.curl_parser.infrastructure.repositories import RegexCurlParser
+from src.tools.karate_java_generator.application.services import KarateJavaGenerationService
+from src.tools.karate_java_generator.infrastructure.repositories import FileSystemKarateJavaRepository
 
 
 class MCPToolsOrchestrator:
@@ -28,6 +30,7 @@ class MCPToolsOrchestrator:
         self.jmeter_repo = XmlJMeterRepository()
         self.curl_repo = JsonCurlRepository()
         self.curl_parser_repo = RegexCurlParser()
+        self.karate_java_repo = FileSystemKarateJavaRepository()
         
         # Initialize services
         self.swagger_service = SwaggerAnalysisService(self.swagger_repo)
@@ -35,6 +38,7 @@ class MCPToolsOrchestrator:
         self.jmeter_service = JMeterGenerationService(self.jmeter_repo)
         self.curl_service = CurlGenerationService(self.curl_repo)
         self.curl_parser_service = CurlParsingService(self.curl_parser_repo)
+        self.karate_java_service = KarateJavaGenerationService(self.karate_java_repo)
     
     async def analyze_swagger_from_url(self, swagger_url: str) -> Dict[str, Any]:
         """
@@ -357,6 +361,129 @@ class MCPToolsOrchestrator:
                 "message": "Failed to parse cURL and generate tests"
             }
     
+    async def generate_karate_java_project(
+        self,
+        swagger_url: str = None,
+        curl_command: str = None,
+        output_dir: str = "./output/karate-project",
+        config: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Tool 7: Generate complete Karate Java project.
+        
+        This tool:
+        1. Analyzes API (from Swagger or cURL)
+        2. Generates feature files
+        3. Creates complete Maven Java project with:
+           - Test runners
+           - Hooks
+           - Configuration classes
+           - Utility classes
+           - Karate features
+           - Maven pom.xml
+           - README and documentation
+        
+        Args:
+            swagger_url: URL to swagger specification (optional if curl_command provided)
+            curl_command: cURL command (optional if swagger_url provided)
+            output_dir: Directory to create the project
+            config: Optional project configuration
+            
+        Returns:
+            Complete project generation result
+        """
+        try:
+            # Validate inputs
+            if not swagger_url and not curl_command:
+                raise ValueError("Either swagger_url or curl_command must be provided")
+            
+            # Step 1: Get swagger data
+            if swagger_url:
+                swagger_result = await self.analyze_swagger_from_url(swagger_url)
+                if not swagger_result["success"]:
+                    return swagger_result
+                swagger_data = swagger_result["data"]
+            else:
+                # Parse cURL and convert to swagger format
+                parse_result = await self.curl_parser_service.parse_curl(curl_command)
+                swagger_data = self.curl_parser_service.convert_to_swagger(parse_result)
+            
+            # Step 2: Generate features (reuse existing generator)
+            features_result = await self.feature_service.generate_features_from_swagger(swagger_data)
+            features_data = {
+                "base_url": features_result.base_url,
+                "total_scenarios": features_result.total_scenarios,
+                "features": []
+            }
+            
+            # Convert features to dict format
+            for feature in features_result.features:
+                # Generate feature content using the service method
+                feature_content = features_result.get_feature_content(feature)
+                
+                feature_dict = {
+                    "feature_name": feature.feature_name,
+                    "description": feature.description,
+                    "tags": feature.tags if feature.tags else [],
+                    "content": feature_content,
+                    "scenarios": []
+                }
+                
+                for scenario in feature.scenarios:
+                    scenario_dict = {
+                        "name": scenario.name,
+                        "description": scenario.description,
+                        "given_steps": scenario.given_steps,
+                        "when_steps": scenario.when_steps,
+                        "then_steps": scenario.then_steps
+                    }
+                    feature_dict["scenarios"].append(scenario_dict)
+                
+                features_data["features"].append(feature_dict)
+            
+            # Step 3: Generate Karate Java project
+            project = await self.karate_java_service.generate_project(
+                swagger_data=swagger_data,
+                features_data=features_data,
+                output_dir=output_dir,
+                config=config
+            )
+            
+            # Get project summary
+            summary = self.karate_java_service.get_project_summary(project)
+            
+            return {
+                "success": True,
+                "data": {
+                    "project_path": output_dir,
+                    "summary": summary,
+                    "maven_config": {
+                        "group_id": project.maven_config.group_id,
+                        "artifact_id": project.maven_config.artifact_id,
+                        "version": project.maven_config.version,
+                        "karate_version": project.maven_config.karate_version
+                    },
+                    "files_generated": {
+                        "java_classes": summary["total_java_classes"],
+                        "test_runners": summary["test_runners"],
+                        "hooks": summary["hooks"],
+                        "config_classes": summary["config_classes"],
+                        "utils": summary["utils"],
+                        "features": summary["total_features"]
+                    }
+                },
+                "message": f"Successfully generated Karate Java project at {output_dir}"
+            }
+            
+        except Exception as e:
+            import traceback
+            return {
+                "success": False,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "message": f"Failed to generate Karate Java project: {str(e)}"
+            }
+    
     async def complete_workflow(self, swagger_url: str, output_dir: str = "./output") -> Dict[str, Any]:
         """
         Complete workflow: Swagger -> Features -> JMeter -> cURL.
@@ -416,49 +543,3 @@ class MCPToolsOrchestrator:
                 "error": str(e),
                 "message": "Failed to execute complete workflow"
             }
-
-
-# CLI interface for testing
-async def main():
-    """Main function for CLI testing."""
-    orchestrator = MCPToolsOrchestrator()
-    
-    # Example usage
-    swagger_url = input("Enter Swagger URL (or press Enter for example): ").strip()
-    if not swagger_url:
-        swagger_url = "https://petstore.swagger.io/v2/swagger.json"
-    
-    output_dir = input("Enter output directory (or press Enter for './output'): ").strip()
-    if not output_dir:
-        output_dir = "./output"
-    
-    print("\n🚀 Starting complete workflow...")
-    
-    # Execute complete workflow
-    result = await orchestrator.complete_workflow(swagger_url, output_dir)
-    
-    if result["success"]:
-        print("✅ Workflow completed successfully!")
-        print(f"📁 Output directory: {result['data']['output_directory']}")
-        
-        swagger_data = result["data"]["swagger_analysis"]
-        print(f"📊 Swagger Analysis: {swagger_data['total_endpoints']} endpoints analyzed")
-        
-        features_data = result["data"]["features_generation"]
-        print(f"🎯 Features Generated: {len(features_data['features'])} feature files with {features_data['total_scenarios']} scenarios")
-        
-        if result["data"]["jmeter_from_swagger"]:
-            jmeter_swagger = result["data"]["jmeter_from_swagger"]
-            print(f"⚡ JMeter from Swagger: {jmeter_swagger['total_thread_groups']} thread groups, {jmeter_swagger['total_requests']} requests")
-        
-        if result["data"]["jmeter_from_features"]:
-            jmeter_features = result["data"]["jmeter_from_features"]
-            print(f"⚡ JMeter from Features: {jmeter_features['total_thread_groups']} thread groups, {jmeter_features['total_requests']} requests")
-    else:
-        print(f"❌ Workflow failed: {result['message']}")
-        if "error" in result:
-            print(f"Error: {result['error']}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
