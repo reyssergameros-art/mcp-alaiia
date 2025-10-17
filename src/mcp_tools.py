@@ -14,6 +14,8 @@ from src.tools.jmeter_generator.application.services import JMeterGenerationServ
 from src.tools.jmeter_generator.infrastructure.repositories import XmlJMeterRepository
 from src.tools.curl_generator.application.services import CurlGenerationService
 from src.tools.curl_generator.infrastructure.repositories import JsonCurlRepository
+from src.tools.curl_parser.application.services import CurlParsingService
+from src.tools.curl_parser.infrastructure.repositories import RegexCurlParser
 
 
 class MCPToolsOrchestrator:
@@ -25,12 +27,14 @@ class MCPToolsOrchestrator:
         self.feature_repo = KarateFeatureRepository()
         self.jmeter_repo = XmlJMeterRepository()
         self.curl_repo = JsonCurlRepository()
+        self.curl_parser_repo = RegexCurlParser()
         
         # Initialize services
         self.swagger_service = SwaggerAnalysisService(self.swagger_repo)
         self.feature_service = FeatureGenerationService(self.feature_repo)
         self.jmeter_service = JMeterGenerationService(self.jmeter_repo)
         self.curl_service = CurlGenerationService(self.curl_repo)
+        self.curl_parser_service = CurlParsingService(self.curl_parser_repo)
     
     async def analyze_swagger_from_url(self, swagger_url: str) -> Dict[str, Any]:
         """
@@ -298,6 +302,59 @@ class MCPToolsOrchestrator:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to generate cURL commands"
+            }
+    
+    async def parse_curl_to_tests(self, curl_command: str, output_dir: str = "./output") -> Dict[str, Any]:
+        """
+        Tool 5: Parse cURL and generate tests using EXISTING generators.
+        
+        This method:
+        1. Parses the cURL command
+        2. Converts to swagger-compatible format
+        3. REUSES feature_generator (without modification)
+        4. REUSES jmeter_generator (without modification)
+        
+        Args:
+            curl_command: Raw cURL command string
+            output_dir: Output directory for generated files
+            
+        Returns:
+            Generation results
+        """
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Step 1: Parse cURL
+            parse_result = await self.curl_parser_service.parse_curl(curl_command)
+            
+            # Step 2: Convert to swagger-compatible format
+            swagger_data = parse_result.to_swagger_data()
+            
+            # Step 3: Generate features using EXISTING generator
+            features_dir = os.path.join(output_dir, "features")
+            features_result = await self.generate_features_from_swagger(swagger_data, features_dir)
+            
+            # Step 4: Generate JMeter using EXISTING generator
+            jmx_file = os.path.join(output_dir, "test_plan_from_curl.jmx")
+            jmeter_result = await self.generate_jmeter_from_swagger(swagger_data, jmx_file)
+            
+            return {
+                "success": True,
+                "data": {
+                    "parsed_curl": parse_result.get_summary(),
+                    "swagger_data": swagger_data,
+                    "features_generation": features_result.get("data") if features_result.get("success") else None,
+                    "jmeter_generation": jmeter_result.get("data") if jmeter_result.get("success") else None,
+                    "output_directory": output_dir
+                },
+                "message": "Successfully generated tests from cURL command"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to parse cURL and generate tests"
             }
     
     async def complete_workflow(self, swagger_url: str, output_dir: str = "./output") -> Dict[str, Any]:

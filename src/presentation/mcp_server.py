@@ -41,6 +41,12 @@ class CurlGeneratorRequest(BaseModel):
     output_dir: Optional[str] = "./output"
 
 
+class CurlToTestsRequest(BaseModel):
+    """Request model for cURL to tests conversion"""
+    curl_command: str
+    output_dir: Optional[str] = "./output"
+
+
 class AlaiiaMCPServer:
     """MCP Server for ALAIIA API Testing Tools"""
     
@@ -239,6 +245,72 @@ Complete Data (JSON):
                     
             except Exception as e:
                 return f"[ERROR] Error generating cURL commands: {str(e)}"
+        
+        @self.mcp.tool()
+        async def curl_to_tests(request: CurlToTestsRequest) -> str:
+            """
+            Generate test artifacts from cURL command.
+
+            Parses a cURL command and generates:
+            - Karate DSL .feature files
+            - JMeter .jmx test plans
+            
+            Uses existing generators WITHOUT modification.
+
+            Args:
+                request: CurlToTestsRequest with curl_command and output_dir
+
+            Returns:
+                Test generation results
+            """
+            try:
+                result = await self.orchestrator.parse_curl_to_tests(
+                    request.curl_command,
+                    request.output_dir
+                )
+                
+                if result["success"]:
+                    data = result["data"]
+                    parsed = data['parsed_curl']
+                    
+                    summary = f"""[SUCCESS] Tests Generated from cURL!
+
+Parsed cURL:
+• Method: {parsed['method']}
+• Path: {parsed['path']}
+• Base URL: {parsed['base_url']}
+• Headers: {parsed['headers_count']}
+• Has Body: {parsed['has_body']}
+"""
+                    
+                    if data.get('features_generation'):
+                        features = data['features_generation']
+                        summary += f"""
+Features:
+• Files: {len(features['features'])}
+• Scenarios: {features['total_scenarios']}
+"""
+                    
+                    if data.get('jmeter_generation'):
+                        jmeter = data['jmeter_generation']
+                        summary += f"""
+JMeter:
+• Requests: {jmeter['total_requests']}
+• File: {jmeter.get('saved_file', 'N/A')}
+"""
+                    
+                    summary += f"""
+Output: {request.output_dir}
+
+Complete Data (JSON):
+{json.dumps(result, indent=2)}
+"""
+                    return summary
+                else:
+                    return f"[ERROR] Failed: {result.get('message', 'Unknown error')}"
+                    
+            except Exception as e:
+                return f"[ERROR] Error: {str(e)}"
         
         @self.mcp.tool()
         async def complete_workflow(request: CompleteWorkflowRequest) -> str:
