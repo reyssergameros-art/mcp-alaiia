@@ -6,6 +6,7 @@ Following Domain-Driven Design principles.
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 import json
+import uuid
 
 
 @dataclass
@@ -76,19 +77,66 @@ class PostmanRequest:
     body: Optional[str] = None
     
     def to_dict(self) -> Dict:
-        """Convert to Postman request format"""
-        # Parse URL to extract path components
-        url_parts = self.url.replace('{{baseUrl}}', '').strip('/').split('/')
+        """
+        Convert to Postman request format.
+        
+        Generates a proper Postman v2.1 request object with correct URL structure.
+        """
+        from urllib.parse import urlparse
+        
+        # Parse the URL properly
+        if '{{baseUrl}}' in self.url:
+            # URL already has variable, extract path
+            path_part = self.url.replace('{{baseUrl}}', '').strip('/')
+            path_segments = [p for p in path_part.split('/') if p]
+            host_segments = ["{{baseUrl}}"]
+            raw_url = self.url
+        else:
+            # Full URL, need to parse and convert
+            parsed = urlparse(self.url)
+            
+            # Extract host segments (for Postman format)
+            if parsed.hostname:
+                host_segments = ["{{baseUrl}}"]
+            else:
+                host_segments = ["{{baseUrl}}"]
+            
+            # Extract path segments
+            path_segments = [p for p in parsed.path.strip('/').split('/') if p]
+            
+            # Build raw URL with variable
+            if parsed.path:
+                raw_url = f"{{{{baseUrl}}}}{parsed.path}"
+            else:
+                raw_url = "{{baseUrl}}"
+            
+            # Add query parameters if present
+            if parsed.query:
+                raw_url += f"?{parsed.query}"
         
         result = {
             "method": self.method,
             "header": self.headers,
             "url": {
-                "raw": self.url,
-                "host": ["{{baseUrl}}"],
-                "path": url_parts if url_parts != [''] else []
+                "raw": raw_url,
+                "host": host_segments,
+                "path": path_segments
             }
         }
+        
+        # Add query parameters to url object if present
+        if '?' in self.url:
+            query_string = self.url.split('?')[1]
+            query_params = []
+            for param in query_string.split('&'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    query_params.append({
+                        "key": key,
+                        "value": value
+                    })
+            if query_params:
+                result["url"]["query"] = query_params
         
         # Add body if present
         if self.body:
@@ -145,15 +193,21 @@ class PostmanCollection:
         """
         Convert to Postman collection v2.1 format.
         
+        Generates a valid Postman Collection v2.1.0 JSON with:
+        - Unique _postman_id (UUID v4)
+        - Proper schema reference
+        - Base URL as collection variable
+        - All items properly formatted
+        
         Returns:
             Dictionary in Postman collection JSON schema format
         """
         return {
             "info": {
                 "name": self.name,
-                "description": self.description or f"API Collection generated from Swagger",
+                "description": self.description or f"API Collection generated from Swagger by MCP-ALAIIA",
                 "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-                "_postman_id": "",
+                "_postman_id": str(uuid.uuid4()),
                 "version": "1.0.0"
             },
             "variable": [

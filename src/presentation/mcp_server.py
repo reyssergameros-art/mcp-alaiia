@@ -426,7 +426,7 @@ Complete Data (JSON):
             This tool executes the full ALAIIA pipeline in one operation:
             1. Analyzes the Swagger/OpenAPI specification
             2. Generates Karate DSL .feature files
-            3. Creates JMeter .jmx test plans (both from Swagger and Features)
+            3. Creates JMeter .jmx test plan
             4. Generates cURL commands and Postman collection
             5. Saves all artifacts to the specified output directory
 
@@ -459,13 +459,9 @@ Feature Generation:
 
 JMeter Generation:"""
                     
-                    if data.get('jmeter_from_swagger'):
-                        jmeter_swagger = data['jmeter_from_swagger']
-                        summary += f"\n• From Swagger: {jmeter_swagger['total_requests']} requests"
-                    
-                    if data.get('jmeter_from_features'):
-                        jmeter_features = data['jmeter_from_features']
-                        summary += f"\n• From Features: {jmeter_features['total_requests']} requests"
+                    if data.get('jmeter_generation'):
+                        jmeter_data = data['jmeter_generation']
+                        summary += f"\n• Requests: {jmeter_data['total_requests']}"
                     
                     # Add cURL generation info
                     if data.get('curl_generation'):

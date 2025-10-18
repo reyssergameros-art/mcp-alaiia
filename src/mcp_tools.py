@@ -4,6 +4,7 @@ import json
 import os
 from typing import Dict, Any, List
 from dataclasses import asdict
+from datetime import datetime
 
 # Import tool services
 from src.tools.swagger_analysis.application.services import SwaggerAnalysisService
@@ -18,6 +19,9 @@ from src.tools.curl_parser.application.services import CurlParsingService
 from src.tools.curl_parser.infrastructure.repositories import RegexCurlParser
 from src.tools.karate_java_generator.application.services import KarateJavaGenerationService
 from src.tools.karate_java_generator.infrastructure.repositories import FileSystemKarateJavaRepository
+
+# Import shared components
+from src.shared.output_manager import OutputManager
 
 
 class MCPToolsOrchestrator:
@@ -101,20 +105,57 @@ class MCPToolsOrchestrator:
                 "message": "Failed to analyze swagger specification"
             }
     
-    async def generate_features_from_swagger(self, swagger_data: Dict[str, Any], output_dir: str = None) -> Dict[str, Any]:
+    async def generate_features_from_swagger(self, swagger_data: Dict[str, Any], output_dir: str = None, use_auto_structure: bool = True) -> Dict[str, Any]:
         """
         Tool 2: Generate Karate DSL feature files from swagger analysis.
         
         Args:
             swagger_data: Swagger analysis result from tool 1
-            output_dir: Directory to save feature files (optional)
+            output_dir: Directory to save feature files (optional, auto-generated if None)
+            use_auto_structure: Whether to use OutputManager auto structure (default: True)
             
         Returns:
             Feature generation result with file paths if saved
         """
         try:
+            execution_start = datetime.now()
+            
             # Use feature generation service
             result = await self.feature_service.generate_features_from_swagger(swagger_data)
+            
+            # Determinar output directory
+            if use_auto_structure and OutputManager.should_use_auto_structure(output_dir):
+                # Usar OutputManager para estructura automática
+                identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
+                output_path = OutputManager.create_output_directory(
+                    'features',
+                    identifier,
+                    execution_start
+                )
+                
+                # Crear subdirectorio para features
+                features_dir = output_path / "features"
+                features_dir.mkdir(exist_ok=True)
+                actual_output_dir = str(features_dir)
+                
+                # Guardar metadatos
+                metadata = {
+                    'output_type': 'features',
+                    'source': {
+                        'type': 'swagger',
+                        'title': swagger_data.get('title', 'Unknown'),
+                        'base_urls': swagger_data.get('base_urls', [])
+                    },
+                    'execution_time_seconds': None,  # Se actualiza al final
+                    'summary': {
+                        'total_features': len(result.features),
+                        'total_scenarios': result.total_scenarios
+                    }
+                }
+            else:
+                # Respetar directorio manual
+                actual_output_dir = output_dir
+                output_path = None
             
             # Convert to dictionary
             result_dict = {
@@ -148,15 +189,25 @@ class MCPToolsOrchestrator:
                 
                 result_dict["features"].append(feature_dict)
             
-            # Save files if output directory is provided
+            # Save files
             saved_files = []
-            if output_dir:
-                saved_files = await self.feature_service.save_features_to_directory(result, output_dir)
+            if actual_output_dir:
+                saved_files = await self.feature_service.save_features_to_directory(result, actual_output_dir)
             
             # Get summary
             summary = self.feature_service.get_features_summary(result)
             result_dict["summary"] = summary
             result_dict["saved_files"] = saved_files
+            result_dict["output_directory"] = str(output_path) if output_path else actual_output_dir
+            
+            # Guardar metadatos y summary si usamos estructura automática
+            if output_path:
+                execution_time = (datetime.now() - execution_start).total_seconds()
+                metadata['execution_time_seconds'] = execution_time
+                metadata['summary']['files_generated'] = len(saved_files)
+                
+                OutputManager.save_metadata(output_path, metadata)
+                OutputManager.save_summary(output_path, summary)
             
             return {
                 "success": True,
@@ -171,13 +222,14 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate feature files"
             }
     
-    async def generate_jmeter_from_swagger(self, swagger_data: Dict[str, Any], output_file: str = None) -> Dict[str, Any]:
+    async def generate_jmeter_from_swagger(self, swagger_data: Dict[str, Any], output_file: str = None, use_auto_structure: bool = True) -> Dict[str, Any]:
         """
         Tool 3a: Generate JMeter test plan from swagger analysis.
         
         Args:
             swagger_data: Swagger analysis result from tool 1
             output_file: File path to save JMX file (optional)
+            use_auto_structure: Whether to use OutputManager auto structure (default: True)
             
         Returns:
             JMeter generation result with file path if saved
@@ -214,13 +266,14 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate JMeter test plan from swagger"
             }
     
-    async def generate_jmeter_from_features(self, features_data: Dict[str, Any], output_file: str = None) -> Dict[str, Any]:
+    async def generate_jmeter_from_features(self, features_data: Dict[str, Any], output_file: str = None, use_auto_structure: bool = True) -> Dict[str, Any]:
         """
         Tool 3b: Generate JMeter test plan from feature files.
         
         Args:
-            features_data: Feature generation result from tool 2
+            features_data: Features generation result from tool 2
             output_file: File path to save JMX file (optional)
+            use_auto_structure: Whether to use OutputManager auto structure (default: True)
             
         Returns:
             JMeter generation result with file path if saved
@@ -257,24 +310,57 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate JMeter test plan from features"
             }
     
-    async def generate_curl_from_swagger(self, swagger_data: Dict[str, Any], output_dir: str = "./output") -> Dict[str, Any]:
+    async def generate_curl_from_swagger(self, swagger_data: Dict[str, Any], output_dir: str = None, use_auto_structure: bool = True) -> Dict[str, Any]:
         """
         Tool 4: Generate cURL commands and Postman collection from swagger analysis.
         
         Args:
             swagger_data: Swagger analysis result from tool 1
-            output_dir: Directory to save generated files (optional)
+            output_dir: Directory to save generated files (optional, auto-generated if None)
+            use_auto_structure: Whether to use OutputManager auto structure (default: True)
             
         Returns:
             cURL generation result with file paths
         """
         try:
+            execution_start = datetime.now()
+            
             # Use cURL generation service
             result = await self.curl_service.generate_from_swagger(swagger_data)
             
+            # Determinar output directory
+            if use_auto_structure and OutputManager.should_use_auto_structure(output_dir):
+                # Usar OutputManager para estructura automática
+                identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
+                output_path = OutputManager.create_output_directory(
+                    'curl',
+                    identifier,
+                    execution_start
+                )
+                actual_output_dir = str(output_path)
+                
+                # Guardar metadatos
+                metadata = {
+                    'output_type': 'curl',
+                    'source': {
+                        'type': 'swagger',
+                        'title': swagger_data.get('title', 'Unknown'),
+                        'base_urls': swagger_data.get('base_urls', [])
+                    },
+                    'execution_time_seconds': None,
+                    'summary': {
+                        'total_commands': result.total_commands
+                    }
+                }
+            else:
+                # Respetar directorio manual
+                actual_output_dir = output_dir
+                output_path = None
+                os.makedirs(actual_output_dir, exist_ok=True)
+            
             # Prepare output file paths
-            curl_file = os.path.join(output_dir, "curl_commands.sh")
-            postman_file = os.path.join(output_dir, "postman_collection.json")
+            curl_file = os.path.join(actual_output_dir, "commands.sh")
+            postman_file = os.path.join(actual_output_dir, "postman-collection.json")
             
             # Save cURL commands
             curl_path = await self.curl_service.export_curl_commands(
@@ -288,6 +374,15 @@ class MCPToolsOrchestrator:
                 postman_file
             )
             
+            # Guardar metadatos y summary si usamos estructura automática
+            if output_path:
+                execution_time = (datetime.now() - execution_start).total_seconds()
+                metadata['execution_time_seconds'] = execution_time
+                metadata['summary']['files_generated'] = 2
+                
+                OutputManager.save_metadata(output_path, metadata)
+                OutputManager.save_summary(output_path, result.get_summary())
+            
             return {
                 "success": True,
                 "data": {
@@ -296,7 +391,8 @@ class MCPToolsOrchestrator:
                     "curl_file": curl_path,
                     "postman_file": postman_path,
                     "collection_name": result.postman_collection.name,
-                    "summary": result.get_summary()
+                    "summary": result.get_summary(),
+                    "output_directory": str(output_path) if output_path else actual_output_dir
                 },
                 "message": f"Successfully generated {result.total_commands} cURL commands and Postman collection"
             }
@@ -308,7 +404,7 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate cURL commands"
             }
     
-    async def parse_curl_to_tests(self, curl_command: str, output_dir: str = "./output") -> Dict[str, Any]:
+    async def parse_curl_to_tests(self, curl_command: str, output_dir: str = None) -> Dict[str, Any]:
         """
         Tool 5: Parse cURL and generate tests using EXISTING generators.
         
@@ -320,13 +416,13 @@ class MCPToolsOrchestrator:
         
         Args:
             curl_command: Raw cURL command string
-            output_dir: Output directory for generated files
+            output_dir: Output directory for generated files (optional, auto-generated if None)
             
         Returns:
             Generation results
         """
         try:
-            os.makedirs(output_dir, exist_ok=True)
+            execution_start = datetime.now()
             
             # Step 1: Parse cURL
             parse_result = await self.curl_parser_service.parse_curl(curl_command)
@@ -334,13 +430,59 @@ class MCPToolsOrchestrator:
             # Step 2: Convert to swagger-compatible format using mapper
             swagger_data = self.curl_parser_service.convert_to_swagger(parse_result)
             
-            # Step 3: Generate features using EXISTING generator
-            features_dir = os.path.join(output_dir, "features")
+            # Determinar output directory
+            if OutputManager.should_use_auto_structure(output_dir):
+                # Usar OutputManager para estructura automática
+                identifier = OutputManager.extract_identifier_from_curl(curl_command)
+                output_path = OutputManager.create_output_directory(
+                    'curl_parser',
+                    identifier,
+                    execution_start
+                )
+                actual_output_dir = str(output_path)
+                
+                # Guardar datos parseados
+                parsed_data_file = output_path / "parsed-data.json"
+                with open(parsed_data_file, 'w', encoding='utf-8') as f:
+                    json.dump(parse_result.get_summary(), f, indent=2)
+                
+                # Guardar metadatos
+                metadata = {
+                    'output_type': 'curl_parser',
+                    'source': {
+                        'type': 'curl',
+                        'command': curl_command[:200] + '...' if len(curl_command) > 200 else curl_command,
+                        'method': parse_result.method,
+                        'url': parse_result.url
+                    },
+                    'execution_time_seconds': None
+                }
+            else:
+                # Respetar directorio manual
+                actual_output_dir = output_dir
+                output_path = None
+                os.makedirs(actual_output_dir, exist_ok=True)
+            
+            # Step 3: Generate features using EXISTING generator (con subdirectorio)
+            features_dir = os.path.join(actual_output_dir, "features")
             features_result = await self.generate_features_from_swagger(swagger_data, features_dir)
             
-            # Step 4: Generate JMeter using EXISTING generator
-            jmx_file = os.path.join(output_dir, "test_plan_from_curl.jmx")
+            # Step 4: Generate JMeter using EXISTING generator (con subdirectorio)
+            jmeter_dir = os.path.join(actual_output_dir, "jmeter")
+            os.makedirs(jmeter_dir, exist_ok=True)
+            jmx_file = os.path.join(jmeter_dir, "test-plan.jmx")
             jmeter_result = await self.generate_jmeter_from_swagger(swagger_data, jmx_file)
+            
+            # Guardar metadatos y summary si usamos estructura automática
+            if output_path:
+                execution_time = (datetime.now() - execution_start).total_seconds()
+                metadata['execution_time_seconds'] = execution_time
+                metadata['summary'] = {
+                    'features_generated': features_result.get('success', False),
+                    'jmeter_generated': jmeter_result.get('success', False)
+                }
+                
+                OutputManager.save_metadata(output_path, metadata)
             
             return {
                 "success": True,
@@ -349,7 +491,7 @@ class MCPToolsOrchestrator:
                     "swagger_data": swagger_data,
                     "features_generation": features_result.get("data") if features_result.get("success") else None,
                     "jmeter_generation": jmeter_result.get("data") if jmeter_result.get("success") else None,
-                    "output_directory": output_dir
+                    "output_directory": str(output_path) if output_path else actual_output_dir
                 },
                 "message": "Successfully generated tests from cURL command"
             }
@@ -365,7 +507,7 @@ class MCPToolsOrchestrator:
         self,
         swagger_url: str = None,
         curl_command: str = None,
-        output_dir: str = "./output/karate-project",
+        output_dir: str = None,
         config: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
@@ -386,13 +528,15 @@ class MCPToolsOrchestrator:
         Args:
             swagger_url: URL to swagger specification (optional if curl_command provided)
             curl_command: cURL command (optional if swagger_url provided)
-            output_dir: Directory to create the project
+            output_dir: Directory to create the project (optional, auto-generated if None)
             config: Optional project configuration
             
         Returns:
             Complete project generation result
         """
         try:
+            execution_start = datetime.now()
+            
             # Validate inputs
             if not swagger_url and not curl_command:
                 raise ValueError("Either swagger_url or curl_command must be provided")
@@ -403,10 +547,38 @@ class MCPToolsOrchestrator:
                 if not swagger_result["success"]:
                     return swagger_result
                 swagger_data = swagger_result["data"]
+                source_identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
             else:
                 # Parse cURL and convert to swagger format
                 parse_result = await self.curl_parser_service.parse_curl(curl_command)
                 swagger_data = self.curl_parser_service.convert_to_swagger(parse_result)
+                source_identifier = OutputManager.extract_identifier_from_curl(curl_command)
+            
+            # Determinar output directory
+            if OutputManager.should_use_auto_structure(output_dir):
+                # Usar OutputManager para estructura automática
+                output_path = OutputManager.create_output_directory(
+                    'karate_project',
+                    source_identifier,
+                    execution_start
+                )
+                actual_output_dir = str(output_path)
+                
+                # Guardar metadatos
+                metadata = {
+                    'output_type': 'karate_project',
+                    'source': {
+                        'type': 'swagger' if swagger_url else 'curl',
+                        'url': swagger_url if swagger_url else None,
+                        'command': curl_command[:200] + '...' if curl_command and len(curl_command) > 200 else curl_command,
+                        'title': swagger_data.get('title', 'Unknown')
+                    },
+                    'execution_time_seconds': None
+                }
+            else:
+                # Respetar directorio manual
+                actual_output_dir = output_dir
+                output_path = None
             
             # Step 2: Generate features (reuse existing generator)
             features_result = await self.feature_service.generate_features_from_swagger(swagger_data)
@@ -445,17 +617,25 @@ class MCPToolsOrchestrator:
             project = await self.karate_java_service.generate_project(
                 swagger_data=swagger_data,
                 features_data=features_data,
-                output_dir=output_dir,
+                output_dir=actual_output_dir,
                 config=config
             )
             
             # Get project summary
             summary = self.karate_java_service.get_project_summary(project)
             
+            # Guardar metadatos y summary si usamos estructura automática
+            if output_path:
+                execution_time = (datetime.now() - execution_start).total_seconds()
+                metadata['execution_time_seconds'] = execution_time
+                metadata['summary'] = summary
+                
+                OutputManager.save_metadata(output_path, metadata)
+            
             return {
                 "success": True,
                 "data": {
-                    "project_path": output_dir,
+                    "project_path": str(output_path) if output_path else actual_output_dir,
                     "summary": summary,
                     "maven_config": {
                         "group_id": project.maven_config.group_id,
@@ -472,7 +652,7 @@ class MCPToolsOrchestrator:
                         "features": summary["total_features"]
                     }
                 },
-                "message": f"Successfully generated Karate Java project at {output_dir}"
+                "message": f"Successfully generated Karate Java project at {str(output_path) if output_path else actual_output_dir}"
             }
             
         except Exception as e:
@@ -484,19 +664,19 @@ class MCPToolsOrchestrator:
                 "message": f"Failed to generate Karate Java project: {str(e)}"
             }
     
-    async def complete_workflow(self, swagger_url: str, output_dir: str = "./output") -> Dict[str, Any]:
+    async def complete_workflow(self, swagger_url: str, output_dir: str = None) -> Dict[str, Any]:
         """
         Complete workflow: Swagger -> Features -> JMeter -> cURL.
         
         Args:
             swagger_url: URL to the swagger/OpenAPI specification
-            output_dir: Directory to save all output files
+            output_dir: Directory to save all output files (optional, auto-generated if None)
             
         Returns:
             Complete workflow result with all generated artifacts
         """
         try:
-            os.makedirs(output_dir, exist_ok=True)
+            execution_start = datetime.now()
             
             # Step 1: Analyze swagger
             swagger_result = await self.analyze_swagger_from_url(swagger_url)
@@ -505,34 +685,79 @@ class MCPToolsOrchestrator:
             
             swagger_data = swagger_result["data"]
             
-            # Step 2: Generate features
-            features_dir = os.path.join(output_dir, "features")
-            features_result = await self.generate_features_from_swagger(swagger_data, features_dir)
+            # Determinar output directory
+            if OutputManager.should_use_auto_structure(output_dir):
+                # Usar OutputManager para estructura de workflow completo
+                identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
+                workflow_paths = OutputManager.create_workflow_structure(
+                    identifier,
+                    execution_start
+                )
+                actual_output_dir = str(workflow_paths['base'])
+                
+                # Guardar metadatos principales
+                metadata = {
+                    'output_type': 'complete_workflow',
+                    'source': {
+                        'type': 'swagger',
+                        'url': swagger_url,
+                        'title': swagger_data.get('title', 'Unknown'),
+                        'base_urls': swagger_data.get('base_urls', [])
+                    },
+                    'execution_time_seconds': None,
+                    'summary': {}
+                }
+                
+                # Guardar análisis de swagger
+                swagger_file = workflow_paths['swagger_analysis'] / "swagger-analysis.json"
+                with open(swagger_file, 'w', encoding='utf-8') as f:
+                    json.dump(swagger_data, f, indent=2)
+            else:
+                # Respetar directorio manual
+                actual_output_dir = output_dir
+                workflow_paths = None
+                os.makedirs(actual_output_dir, exist_ok=True)
+            
+            # Step 2: Generate features (sin auto-structure para evitar duplicación)
+            features_dir = str(workflow_paths['features']) if workflow_paths else os.path.join(actual_output_dir, "features")
+            features_result = await self.generate_features_from_swagger(swagger_data, features_dir, use_auto_structure=False)
             if not features_result["success"]:
                 return features_result
             
             features_data = features_result["data"]
             
-            # Step 3a: Generate JMeter from swagger
-            jmx_from_swagger_file = os.path.join(output_dir, "test_plan_from_swagger.jmx")
-            jmeter_swagger_result = await self.generate_jmeter_from_swagger(swagger_data, jmx_from_swagger_file)
+            # Step 3: Generate JMeter from swagger (sin auto-structure para evitar duplicación)
+            jmx_dir = str(workflow_paths['jmeter']) if workflow_paths else os.path.join(actual_output_dir, "jmeter")
+            os.makedirs(jmx_dir, exist_ok=True)
+            jmx_file = os.path.join(jmx_dir, "test-plan.jmx")
+            jmeter_result = await self.generate_jmeter_from_swagger(swagger_data, jmx_file, use_auto_structure=False)
             
-            # Step 3b: Generate JMeter from features
-            jmx_from_features_file = os.path.join(output_dir, "test_plan_from_features.jmx")
-            jmeter_features_result = await self.generate_jmeter_from_features(features_data, jmx_from_features_file)
+            # Step 4: Generate cURL commands and Postman collection (sin auto-structure para evitar duplicación)
+            curl_dir = str(workflow_paths['curl']) if workflow_paths else os.path.join(actual_output_dir, "curl")
+            curl_result = await self.generate_curl_from_swagger(swagger_data, curl_dir, use_auto_structure=False)
             
-            # Step 4: Generate cURL commands and Postman collection
-            curl_result = await self.generate_curl_from_swagger(swagger_data, output_dir)
+            # Guardar metadatos y summary si usamos estructura automática
+            if workflow_paths:
+                execution_time = (datetime.now() - execution_start).total_seconds()
+                metadata['execution_time_seconds'] = execution_time
+                metadata['summary'] = {
+                    'swagger_analyzed': True,
+                    'features_generated': features_result["success"],
+                    'total_features': len(features_data.get('features', [])),
+                    'jmeter_generated': jmeter_result["success"],
+                    'curl_generated': curl_result["success"]
+                }
+                
+                OutputManager.save_metadata(workflow_paths['base'], metadata)
             
             return {
                 "success": True,
                 "data": {
                     "swagger_analysis": swagger_data,
                     "features_generation": features_data,
-                    "jmeter_from_swagger": jmeter_swagger_result["data"] if jmeter_swagger_result["success"] else None,
-                    "jmeter_from_features": jmeter_features_result["data"] if jmeter_features_result["success"] else None,
+                    "jmeter_generation": jmeter_result["data"] if jmeter_result["success"] else None,
                     "curl_generation": curl_result["data"] if curl_result["success"] else None,
-                    "output_directory": output_dir
+                    "output_directory": actual_output_dir
                 },
                 "message": "Complete workflow executed successfully"
             }
