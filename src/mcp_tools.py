@@ -124,7 +124,8 @@ class MCPToolsOrchestrator:
             result = await self.feature_service.generate_features_from_swagger(swagger_data)
             
             # Determinar output directory
-            if use_auto_structure and OutputManager.should_use_auto_structure(output_dir):
+            # SOLO usar auto-structure si está habilitado Y no se proporciona un directorio específico
+            if use_auto_structure and (output_dir is None or OutputManager.should_use_auto_structure(output_dir)):
                 # Usar OutputManager para estructura automática
                 identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
                 output_path = OutputManager.create_output_directory(
@@ -133,10 +134,8 @@ class MCPToolsOrchestrator:
                     execution_start
                 )
                 
-                # Crear subdirectorio para features
-                features_dir = output_path / "features"
-                features_dir.mkdir(exist_ok=True)
-                actual_output_dir = str(features_dir)
+                # Usar directamente el path creado por OutputManager (sin subdirectorio extra)
+                actual_output_dir = str(output_path)
                 
                 # Guardar metadatos
                 metadata = {
@@ -153,9 +152,11 @@ class MCPToolsOrchestrator:
                     }
                 }
             else:
-                # Respetar directorio manual
-                actual_output_dir = output_dir
+                # Respetar directorio manual o cuando use_auto_structure=False
+                actual_output_dir = output_dir if output_dir else "./output/features"
                 output_path = None
+                # Asegurar que el directorio existe
+                os.makedirs(actual_output_dir, exist_ok=True)
             
             # Convert to dictionary
             result_dict = {
@@ -238,10 +239,41 @@ class MCPToolsOrchestrator:
             # Use JMeter generation service
             result = await self.jmeter_service.generate_from_swagger(swagger_data)
             
-            # Save file if output path is provided
+            # Determinar output file
             saved_file = None
-            if output_file:
-                saved_file = await self.jmeter_service.save_test_plan(result, output_file)
+            # SOLO usar auto-structure si está habilitado Y no se proporciona un archivo específico
+            if use_auto_structure and (output_file is None or OutputManager.should_use_auto_structure(output_file)):
+                # Usar OutputManager para estructura automática
+                execution_start = datetime.now()
+                identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
+                output_path = OutputManager.create_output_directory(
+                    'jmeter',
+                    identifier,
+                    execution_start
+                )
+                actual_output_file = str(output_path / "test-plan.jmx")
+                
+                # Guardar metadatos
+                metadata = {
+                    'output_type': 'jmeter',
+                    'source': {
+                        'type': 'swagger',
+                        'title': swagger_data.get('title', 'Unknown'),
+                        'base_urls': swagger_data.get('base_urls', [])
+                    },
+                    'summary': {
+                        'total_thread_groups': result.total_thread_groups,
+                        'total_requests': result.total_requests
+                    }
+                }
+                OutputManager.save_metadata(output_path, metadata)
+                saved_file = await self.jmeter_service.save_test_plan(result, actual_output_file)
+            elif output_file:
+                # Respetar path manual cuando use_auto_structure=False o path específico
+                actual_output_file = output_file
+                # Asegurar que el directorio padre existe
+                os.makedirs(os.path.dirname(actual_output_file), exist_ok=True)
+                saved_file = await self.jmeter_service.save_test_plan(result, actual_output_file)
             
             # Get summary
             summary = self.jmeter_service.get_test_plan_summary(result)
@@ -329,7 +361,8 @@ class MCPToolsOrchestrator:
             result = await self.curl_service.generate_from_swagger(swagger_data)
             
             # Determinar output directory
-            if use_auto_structure and OutputManager.should_use_auto_structure(output_dir):
+            # SOLO usar auto-structure si está habilitado Y no se proporciona un directorio específico
+            if use_auto_structure and (output_dir is None or OutputManager.should_use_auto_structure(output_dir)):
                 # Usar OutputManager para estructura automática
                 identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
                 output_path = OutputManager.create_output_directory(
@@ -353,9 +386,10 @@ class MCPToolsOrchestrator:
                     }
                 }
             else:
-                # Respetar directorio manual
-                actual_output_dir = output_dir
+                # Respetar directorio manual o cuando use_auto_structure=False
+                actual_output_dir = output_dir if output_dir else "./output/curl"
                 output_path = None
+                # Asegurar que el directorio existe
                 os.makedirs(actual_output_dir, exist_ok=True)
             
             # Prepare output file paths
@@ -440,23 +474,6 @@ class MCPToolsOrchestrator:
                     execution_start
                 )
                 actual_output_dir = str(output_path)
-                
-                # Guardar datos parseados
-                parsed_data_file = output_path / "parsed-data.json"
-                with open(parsed_data_file, 'w', encoding='utf-8') as f:
-                    json.dump(parse_result.get_summary(), f, indent=2)
-                
-                # Guardar metadatos
-                metadata = {
-                    'output_type': 'curl_parser',
-                    'source': {
-                        'type': 'curl',
-                        'command': curl_command[:200] + '...' if len(curl_command) > 200 else curl_command,
-                        'method': parse_result.method,
-                        'url': parse_result.url
-                    },
-                    'execution_time_seconds': None
-                }
             else:
                 # Respetar directorio manual
                 actual_output_dir = output_dir
@@ -465,24 +482,21 @@ class MCPToolsOrchestrator:
             
             # Step 3: Generate features using EXISTING generator (con subdirectorio)
             features_dir = os.path.join(actual_output_dir, "features")
-            features_result = await self.generate_features_from_swagger(swagger_data, features_dir)
+            features_result = await self.generate_features_from_swagger(
+                swagger_data, 
+                features_dir, 
+                use_auto_structure=False  # Evitar duplicación: ya tenemos estructura base
+            )
             
             # Step 4: Generate JMeter using EXISTING generator (con subdirectorio)
             jmeter_dir = os.path.join(actual_output_dir, "jmeter")
             os.makedirs(jmeter_dir, exist_ok=True)
             jmx_file = os.path.join(jmeter_dir, "test-plan.jmx")
-            jmeter_result = await self.generate_jmeter_from_swagger(swagger_data, jmx_file)
-            
-            # Guardar metadatos y summary si usamos estructura automática
-            if output_path:
-                execution_time = (datetime.now() - execution_start).total_seconds()
-                metadata['execution_time_seconds'] = execution_time
-                metadata['summary'] = {
-                    'features_generated': features_result.get('success', False),
-                    'jmeter_generated': jmeter_result.get('success', False)
-                }
-                
-                OutputManager.save_metadata(output_path, metadata)
+            jmeter_result = await self.generate_jmeter_from_swagger(
+                swagger_data, 
+                jmx_file, 
+                use_auto_structure=False  # Evitar duplicación: ya tenemos estructura base
+            )
             
             return {
                 "success": True,

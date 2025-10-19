@@ -326,7 +326,7 @@ class OutputManager:
         Example:
             >>> paths = OutputManager.create_workflow_structure('Petstore API')
             >>> print(paths['features'])
-            output/complete-workflows/20250117_103045-petstore-api/02-features/
+            output/complete-workflows/20250117_103045-petstore-api/features/
         """
         # Crear directorio principal del workflow
         base_dir = cls.create_output_directory(
@@ -337,10 +337,10 @@ class OutputManager:
         
         # Crear subdirectorios
         subdirs = {
-            'swagger_analysis': base_dir / "01-swagger-analysis",
-            'features': base_dir / "02-features",
-            'jmeter': base_dir / "03-jmeter",
-            'curl': base_dir / "04-curl"
+            'swagger_analysis': base_dir / "swagger_analysis",
+            'features': base_dir / "features",
+            'jmeter': base_dir / "jmeter",
+            'curl': base_dir / "curl"
         }
         
         # Crear cada subdirectorio
