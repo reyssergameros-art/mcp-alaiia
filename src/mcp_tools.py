@@ -19,6 +19,8 @@ from src.tools.curl_parser.application.services import CurlParsingService
 from src.tools.curl_parser.infrastructure.repositories import RegexCurlParser
 from src.tools.karate_java_generator.application.services import KarateJavaGenerationService
 from src.tools.karate_java_generator.infrastructure.repositories import FileSystemKarateJavaRepository
+from src.tools.database_query.application.services import DatabaseQueryService
+from src.tools.database_query.domain.models import DatabaseConnection, QueryRequest, DatabaseType
 
 # Import shared components
 from src.shared.output_manager import OutputManager
@@ -43,6 +45,7 @@ class MCPToolsOrchestrator:
         self.curl_service = CurlGenerationService(self.curl_repo)
         self.curl_parser_service = CurlParsingService(self.curl_parser_repo)
         self.karate_java_service = KarateJavaGenerationService(self.karate_java_repo)
+        self.database_query_service = DatabaseQueryService()
     
     async def analyze_swagger_from_url(self, swagger_url: str) -> Dict[str, Any]:
         """
@@ -782,3 +785,207 @@ class MCPToolsOrchestrator:
                 "error": str(e),
                 "message": "Failed to execute complete workflow"
             }
+    
+    async def execute_database_query(
+        self,
+        query: str,
+        db_type: str,
+        connection_string: str = None,
+        host: str = None,
+        port: int = None,
+        database: str = None,
+        username: str = None,
+        password: str = None,
+        timeout: int = 30,
+        max_rows: int = 1000,
+        output_format: str = "json",
+        include_metadata: bool = True,
+        output_file: str = None
+    ) -> Dict[str, Any]:
+        """
+        Tool 8: Execute database query with validation and result formatting.
+        
+        Args:
+            query: SQL query to execute (read-only operations only)
+            db_type: Database type (postgres, mysql, sqlserver, sqlite)
+            connection_string: Full connection string (alternative to individual params)
+            host: Database host
+            port: Database port
+            database: Database name
+            username: Database username
+            password: Database password
+            timeout: Query timeout in seconds (default: 30)
+            max_rows: Maximum number of rows to return (default: 1000)
+            output_format: Output format (json, csv, markdown, table)
+            include_metadata: Include validation and connection metadata
+            output_file: Optional file path to save results
+            
+        Returns:
+            Dictionary with query results or error details
+        """
+        try:
+            # Validate db_type
+            try:
+                database_type = DatabaseType[db_type.upper()]
+            except KeyError:
+                return {
+                    "success": False,
+                    "error": f"Invalid database type: {db_type}",
+                    "supported_types": DatabaseQueryService().get_supported_databases()
+                }
+            
+            # Build connection configuration
+            connection = DatabaseConnection(
+                db_type=database_type,
+                host=host,
+                port=port,
+                database=database,
+                username=username,
+                password=password,
+                connection_string=connection_string
+            )
+            
+            # Build query request
+            request = QueryRequest(
+                query=query,
+                connection=connection,
+                timeout=timeout,
+                max_rows=max_rows,
+                output_format=output_format,
+                include_metadata=include_metadata
+            )
+            
+            # Execute query with optional file output
+            if output_file:
+                result = await self.database_query_service.execute_query_with_output_file(
+                    request=request,
+                    output_file=output_file
+                )
+            else:
+                result = await self.database_query_service.execute_query(request=request)
+            
+            return result
+            
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid request parameters: {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to execute database query: {str(e)}"
+            }
+    
+    async def validate_database_query(
+        self,
+        query: str,
+        db_type: str
+    ) -> Dict[str, Any]:
+        """
+        Tool 9: Validate database query without executing it.
+        
+        Args:
+            query: SQL query to validate
+            db_type: Database type (postgres, mysql, sqlserver, sqlite)
+            
+        Returns:
+            Dictionary with validation results
+        """
+        try:
+            # Validate db_type
+            try:
+                database_type = DatabaseType[db_type.upper()]
+            except KeyError:
+                return {
+                    "success": False,
+                    "error": f"Invalid database type: {db_type}",
+                    "supported_types": DatabaseQueryService().get_supported_databases()
+                }
+            
+            # Create minimal connection (not used for validation)
+            connection = DatabaseConnection(
+                db_type=database_type,
+                connection_string="dummy://localhost"
+            )
+            
+            # Validate query only
+            result = await self.database_query_service.validate_query_only(
+                connection=connection,
+                query=query
+            )
+            
+            return result
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to validate query: {str(e)}"
+            }
+    
+    async def test_database_connection(
+        self,
+        db_type: str,
+        connection_string: str = None,
+        host: str = None,
+        port: int = None,
+        database: str = None,
+        username: str = None,
+        password: str = None
+    ) -> Dict[str, Any]:
+        """
+        Tool 10: Test database connection without executing queries.
+        
+        Args:
+            db_type: Database type (postgres, mysql, sqlserver, sqlite)
+            connection_string: Full connection string (alternative to individual params)
+            host: Database host
+            port: Database port
+            database: Database name
+            username: Database username
+            password: Database password
+            
+        Returns:
+            Dictionary with connection test results
+        """
+        try:
+            # Validate db_type
+            try:
+                database_type = DatabaseType[db_type.upper()]
+            except KeyError:
+                return {
+                    "success": False,
+                    "error": f"Invalid database type: {db_type}",
+                    "supported_types": DatabaseQueryService().get_supported_databases()
+                }
+            
+            # Build connection configuration
+            connection = DatabaseConnection(
+                db_type=database_type,
+                host=host,
+                port=port,
+                database=database,
+                username=username,
+                password=password,
+                connection_string=connection_string
+            )
+            
+            # Test connection
+            result = await self.database_query_service.test_connection_only(connection)
+            
+            return result
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to test connection: {str(e)}"
+            }
+    
+    def get_supported_databases(self) -> Dict[str, Any]:
+        """
+        Tool 11: Get list of supported database types.
+        
+        Returns:
+            Dictionary with supported databases
+        """
+        return self.database_query_service.get_supported_databases()
