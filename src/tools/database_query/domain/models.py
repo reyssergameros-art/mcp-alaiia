@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
+from .config import DB_DEFAULTS
 
 
 class DatabaseType(Enum):
@@ -51,7 +52,23 @@ class DatabaseConnection:
     options: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
-        """Validate connection parameters."""
+        """Validate connection parameters and apply defaults."""
+        # Apply defaults if values not provided and no connection string
+        if not self.connection_string:
+            defaults = DB_DEFAULTS.get_defaults_for_db_type(self.db_type.value)
+            
+            if self.host is None:
+                self.host = defaults.get("host")
+            if self.port is None:
+                self.port = defaults.get("port")
+            if self.database is None:
+                self.database = defaults.get("database")
+            if self.username is None:
+                self.username = defaults.get("username")
+            if self.password is None:
+                self.password = defaults.get("password")
+        
+        # Validate that we have minimum required connection info
         if not self.connection_string and not (self.host and self.database):
             raise ValueError("Either connection_string or host/database must be provided")
     
