@@ -17,8 +17,6 @@ from src.tools.curl_generator.application.services import CurlGenerationService
 from src.tools.curl_generator.infrastructure.repositories import JsonCurlRepository
 from src.tools.curl_parser.application.services import CurlParsingService
 from src.tools.curl_parser.infrastructure.repositories import RegexCurlParser
-from src.tools.karate_java_generator.application.services import KarateJavaGenerationService
-from src.tools.karate_java_generator.infrastructure.repositories import FileSystemKarateJavaRepository
 from src.tools.database_query.application.services import DatabaseQueryService
 from src.tools.database_query.domain.models import DatabaseConnection, QueryRequest, DatabaseType
 
@@ -36,7 +34,6 @@ class MCPToolsOrchestrator:
         self.jmeter_repo = XmlJMeterRepository()
         self.curl_repo = JsonCurlRepository()
         self.curl_parser_repo = RegexCurlParser()
-        self.karate_java_repo = FileSystemKarateJavaRepository()
         
         # Initialize services
         self.swagger_service = SwaggerAnalysisService(self.swagger_repo)
@@ -44,7 +41,6 @@ class MCPToolsOrchestrator:
         self.jmeter_service = JMeterGenerationService(self.jmeter_repo)
         self.curl_service = CurlGenerationService(self.curl_repo)
         self.curl_parser_service = CurlParsingService(self.curl_parser_repo)
-        self.karate_java_service = KarateJavaGenerationService(self.karate_java_repo)
         self.database_query_service = DatabaseQueryService()
     
     async def analyze_swagger_from_url(self, swagger_url: str) -> Dict[str, Any]:
@@ -518,167 +514,6 @@ class MCPToolsOrchestrator:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to parse cURL and generate tests"
-            }
-    
-    async def generate_karate_java_project(
-        self,
-        swagger_url: str = None,
-        curl_command: str = None,
-        output_dir: str = None,
-        config: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
-        """
-        Tool 7: Generate complete Karate Java project.
-        
-        This tool:
-        1. Analyzes API (from Swagger or cURL)
-        2. Generates feature files
-        3. Creates complete Maven Java project with:
-           - Test runners
-           - Hooks
-           - Configuration classes
-           - Utility classes
-           - Karate features
-           - Maven pom.xml
-           - README and documentation
-        
-        Args:
-            swagger_url: URL to swagger specification (optional if curl_command provided)
-            curl_command: cURL command (optional if swagger_url provided)
-            output_dir: Directory to create the project (optional, auto-generated if None)
-            config: Optional project configuration
-            
-        Returns:
-            Complete project generation result
-        """
-        try:
-            execution_start = datetime.now()
-            
-            # Validate inputs
-            if not swagger_url and not curl_command:
-                raise ValueError("Either swagger_url or curl_command must be provided")
-            
-            # Step 1: Get swagger data
-            if swagger_url:
-                swagger_result = await self.analyze_swagger_from_url(swagger_url)
-                if not swagger_result["success"]:
-                    return swagger_result
-                swagger_data = swagger_result["data"]
-                source_identifier = OutputManager.extract_identifier_from_swagger(swagger_data)
-            else:
-                # Parse cURL and convert to swagger format
-                parse_result = await self.curl_parser_service.parse_curl(curl_command)
-                swagger_data = self.curl_parser_service.convert_to_swagger(parse_result)
-                source_identifier = OutputManager.extract_identifier_from_curl(curl_command)
-            
-            # Determinar output directory
-            if OutputManager.should_use_auto_structure(output_dir):
-                # Usar OutputManager para estructura automática
-                output_path = OutputManager.create_output_directory(
-                    'karate_project',
-                    source_identifier,
-                    execution_start
-                )
-                actual_output_dir = str(output_path)
-                
-                # Guardar metadatos
-                metadata = {
-                    'output_type': 'karate_project',
-                    'source': {
-                        'type': 'swagger' if swagger_url else 'curl',
-                        'url': swagger_url if swagger_url else None,
-                        'command': curl_command[:200] + '...' if curl_command and len(curl_command) > 200 else curl_command,
-                        'title': swagger_data.get('title', 'Unknown')
-                    },
-                    'execution_time_seconds': None
-                }
-            else:
-                # Respetar directorio manual
-                actual_output_dir = output_dir
-                output_path = None
-            
-            # Step 2: Generate features (reuse existing generator)
-            features_result = await self.feature_service.generate_features_from_swagger(swagger_data)
-            features_data = {
-                "base_url": features_result.base_url,
-                "total_scenarios": features_result.total_scenarios,
-                "features": []
-            }
-            
-            # Convert features to dict format
-            for feature in features_result.features:
-                # Generate feature content using the service method
-                feature_content = features_result.get_feature_content(feature)
-                
-                feature_dict = {
-                    "feature_name": feature.feature_name,
-                    "description": feature.description,
-                    "tags": feature.tags if feature.tags else [],
-                    "content": feature_content,
-                    "scenarios": []
-                }
-                
-                for scenario in feature.scenarios:
-                    scenario_dict = {
-                        "name": scenario.name,
-                        "description": scenario.description,
-                        "given_steps": scenario.given_steps,
-                        "when_steps": scenario.when_steps,
-                        "then_steps": scenario.then_steps
-                    }
-                    feature_dict["scenarios"].append(scenario_dict)
-                
-                features_data["features"].append(feature_dict)
-            
-            # Step 3: Generate Karate Java project
-            project = await self.karate_java_service.generate_project(
-                swagger_data=swagger_data,
-                features_data=features_data,
-                output_dir=actual_output_dir,
-                config=config
-            )
-            
-            # Get project summary
-            summary = self.karate_java_service.get_project_summary(project)
-            
-            # Guardar metadatos y summary si usamos estructura automática
-            if output_path:
-                execution_time = (datetime.now() - execution_start).total_seconds()
-                metadata['execution_time_seconds'] = execution_time
-                metadata['summary'] = summary
-                
-                OutputManager.save_metadata(output_path, metadata)
-            
-            return {
-                "success": True,
-                "data": {
-                    "project_path": str(output_path) if output_path else actual_output_dir,
-                    "summary": summary,
-                    "maven_config": {
-                        "group_id": project.maven_config.group_id,
-                        "artifact_id": project.maven_config.artifact_id,
-                        "version": project.maven_config.version,
-                        "karate_version": project.maven_config.karate_version
-                    },
-                    "files_generated": {
-                        "java_classes": summary["total_java_classes"],
-                        "test_runners": summary["test_runners"],
-                        "hooks": summary["hooks"],
-                        "config_classes": summary["config_classes"],
-                        "utils": summary["utils"],
-                        "features": summary["total_features"]
-                    }
-                },
-                "message": f"Successfully generated Karate Java project at {str(output_path) if output_path else actual_output_dir}"
-            }
-            
-        except Exception as e:
-            import traceback
-            return {
-                "success": False,
-                "error": str(e),
-                "traceback": traceback.format_exc(),
-                "message": f"Failed to generate Karate Java project: {str(e)}"
             }
     
     async def complete_workflow(self, swagger_url: str, output_dir: str = None) -> Dict[str, Any]:
