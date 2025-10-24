@@ -2,7 +2,7 @@
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from urllib.parse import urlparse
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from ..domain.repositories import JMeterRepository
 from ..domain.models import (
     JMeterGenerationResult, JMeterTestPlan, JMeterThreadGroup, 
@@ -14,8 +14,19 @@ from ....shared.utils.field_filter import should_include_field_in_request
 class XmlJMeterRepository(JMeterRepository):
     """XML implementation of JMeter repository."""
     
-    async def generate_jmx_from_swagger(self, swagger_data: Dict[str, Any]) -> JMeterGenerationResult:
-        """Generate JMX test plan from swagger analysis result."""
+    async def generate_jmx_from_swagger(
+        self, 
+        swagger_data: Dict[str, Any],
+        test_scenarios: Optional[List[Dict[str, Any]]] = None
+    ) -> JMeterGenerationResult:
+        """
+        Generate JMX test plan from swagger analysis result.
+        
+        Args:
+            swagger_data: Swagger analysis result
+            test_scenarios: Optional list of test scenarios. If provided, creates one Thread Group
+                per scenario with custom configuration. If None, creates one Thread Group per endpoint.
+        """
         
         base_urls = swagger_data.get('base_urls', ['http://localhost'])
         base_url = base_urls[0] if base_urls else 'http://localhost'
@@ -38,11 +49,23 @@ class XmlJMeterRepository(JMeterRepository):
         
         total_requests = 0
         
-        # Create one thread group per endpoint
-        for endpoint in endpoints:
-            thread_group = self._create_thread_group_from_endpoint(endpoint)
-            test_plan.thread_groups.append(thread_group)
-            total_requests += len(thread_group.http_requests)
+        # LOGIC BIFURCATION: Different behavior based on test_scenarios
+        if test_scenarios:
+            # CUSTOM MODE: Create Thread Groups based on scenarios
+            # All scenarios will test the same endpoints, but with different load configurations
+            for scenario in test_scenarios:
+                thread_group = self._create_thread_group_from_scenarios(
+                    scenario, 
+                    endpoints
+                )
+                test_plan.thread_groups.append(thread_group)
+                total_requests += len(thread_group.http_requests)
+        else:
+            # DEFAULT MODE: Create one thread group per endpoint (original behavior)
+            for endpoint in endpoints:
+                thread_group = self._create_thread_group_from_endpoint(endpoint)
+                test_plan.thread_groups.append(thread_group)
+                total_requests += len(thread_group.http_requests)
         
         # Generate XML content
         xml_content = self._generate_jmx_xml(test_plan)
@@ -129,6 +152,45 @@ class XmlJMeterRepository(JMeterRepository):
             http_request = self._extract_http_request_from_scenario(scenario)
             if http_request:
                 thread_group.http_requests.append(http_request)
+        
+        return thread_group
+    
+    def _create_thread_group_from_scenarios(
+        self, 
+        scenario_config: Dict[str, Any], 
+        endpoints: List[Dict[str, Any]]
+    ) -> JMeterThreadGroup:
+        """
+        Create a thread group from a scenario configuration.
+        
+        This method creates a Thread Group with custom configuration (name, threads, ramp-up, loops)
+        and adds HTTP requests for all provided endpoints.
+        
+        Args:
+            scenario_config: Dictionary with 'name', 'num_threads', 'ramp_time', 'loop_count'
+            endpoints: List of endpoint dictionaries to create HTTP requests from
+            
+        Returns:
+            JMeterThreadGroup with custom configuration and HTTP requests
+        """
+        # Extract scenario configuration
+        scenario_name = scenario_config.get('name', 'Custom Thread Group')
+        num_threads = scenario_config.get('num_threads', 1)
+        ramp_time = scenario_config.get('ramp_time', 1)
+        loop_count = scenario_config.get('loop_count', 1)
+        
+        # Create thread group with custom configuration
+        thread_group = JMeterThreadGroup(
+            name=scenario_name,
+            num_threads=num_threads,
+            ramp_time=ramp_time,
+            loop_count=loop_count
+        )
+        
+        # Add HTTP requests for all endpoints
+        for endpoint in endpoints:
+            http_request = self._create_http_request_from_endpoint(endpoint)
+            thread_group.http_requests.append(http_request)
         
         return thread_group
     

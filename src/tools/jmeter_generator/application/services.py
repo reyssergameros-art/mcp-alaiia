@@ -1,5 +1,5 @@
 """Application services for JMeter generation."""
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from ..domain.repositories import JMeterRepository
 from ..domain.models import JMeterGenerationResult
 
@@ -10,17 +10,23 @@ class JMeterGenerationService:
     def __init__(self, repository: JMeterRepository):
         self._repository = repository
     
-    async def generate_from_swagger(self, swagger_data: Dict[str, Any]) -> JMeterGenerationResult:
+    async def generate_from_swagger(
+        self, 
+        swagger_data: Dict[str, Any], 
+        test_scenarios: Optional[List[Dict[str, Any]]] = None
+    ) -> JMeterGenerationResult:
         """
         Generate JMeter test plan from swagger analysis result.
         
         Args:
             swagger_data: Swagger analysis result data
+            test_scenarios: Optional list of test scenarios with Thread Group configurations.
+                Each scenario should have: name, num_threads, ramp_time, loop_count
             
         Returns:
             JMeterGenerationResult with generated test plan
         """
-        return await self._repository.generate_jmx_from_swagger(swagger_data)
+        return await self._repository.generate_jmx_from_swagger(swagger_data, test_scenarios)
     
     async def generate_from_features(self, features_data: Dict[str, Any]) -> JMeterGenerationResult:
         """

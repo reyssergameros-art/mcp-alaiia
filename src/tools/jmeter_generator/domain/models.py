@@ -74,6 +74,16 @@ class JMeterTestPlan:
 
 
 @dataclass
+class TestScenario:
+    """Represents a test scenario configuration for a Thread Group."""
+    name: str
+    num_threads: int = 1
+    ramp_time: int = 1
+    loop_count: int = 1
+    description: str = ""
+
+
+@dataclass
 class JMeterGenerationResult:
     """Result of JMeter generation process."""
     test_plan: JMeterTestPlan

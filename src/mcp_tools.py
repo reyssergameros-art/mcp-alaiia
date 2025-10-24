@@ -222,7 +222,13 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate feature files"
             }
     
-    async def generate_jmeter_from_swagger(self, swagger_data: Dict[str, Any], output_file: str = None, use_auto_structure: bool = True) -> Dict[str, Any]:
+    async def generate_jmeter_from_swagger(
+        self, 
+        swagger_data: Dict[str, Any], 
+        output_file: str = None, 
+        use_auto_structure: bool = True,
+        test_scenarios: List[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Tool 3a: Generate JMeter test plan from swagger analysis.
         
@@ -230,13 +236,14 @@ class MCPToolsOrchestrator:
             swagger_data: Swagger analysis result from tool 1
             output_file: File path to save JMX file (optional)
             use_auto_structure: Whether to use OutputManager auto structure (default: True)
+            test_scenarios: List of test scenarios with Thread Group configurations (optional)
             
         Returns:
             JMeter generation result with file path if saved
         """
         try:
             # Use JMeter generation service
-            result = await self.jmeter_service.generate_from_swagger(swagger_data)
+            result = await self.jmeter_service.generate_from_swagger(swagger_data, test_scenarios)
             
             # Determinar output file
             saved_file = None
@@ -437,7 +444,12 @@ class MCPToolsOrchestrator:
                 "message": "Failed to generate cURL commands"
             }
     
-    async def parse_curl_to_tests(self, curl_command: str, output_dir: str = None) -> Dict[str, Any]:
+    async def parse_curl_to_tests(
+        self, 
+        curl_command: str, 
+        output_dir: str = None,
+        test_scenarios: List[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Tool 5: Parse cURL and generate tests using EXISTING generators.
         
@@ -450,6 +462,8 @@ class MCPToolsOrchestrator:
         Args:
             curl_command: Raw cURL command string
             output_dir: Output directory for generated files (optional, auto-generated if None)
+            test_scenarios: List of test scenarios with Thread Group configurations (optional)
+                Each scenario should have: name, num_threads, ramp_time, loop_count
             
         Returns:
             Generation results
@@ -494,7 +508,8 @@ class MCPToolsOrchestrator:
             jmeter_result = await self.generate_jmeter_from_swagger(
                 swagger_data, 
                 jmx_file, 
-                use_auto_structure=False  # Evitar duplicación: ya tenemos estructura base
+                use_auto_structure=False,  # Evitar duplicación: ya tenemos estructura base
+                test_scenarios=test_scenarios  # Pasar escenarios de prueba
             )
             
             return {

@@ -4,7 +4,7 @@ MCP Server for ALAIIA API Testing Tools using FastMCP.
 
 from fastmcp import FastMCP
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import json
 
 from ..mcp_tools import MCPToolsOrchestrator
@@ -45,6 +45,7 @@ class CurlToTestsRequest(BaseModel):
     """Request model for cURL to tests conversion"""
     curl_command: str
     output_dir: Optional[str] = "./output"
+    test_scenarios: Optional[List[Dict[str, Any]]] = None  # Optional list of test scenarios
 
 
 class DatabaseQueryRequest(BaseModel):
@@ -292,7 +293,7 @@ Complete Data (JSON):
             Uses existing generators WITHOUT modification.
 
             Args:
-                request: CurlToTestsRequest with curl_command and output_dir
+                request: CurlToTestsRequest with curl_command, output_dir, and optional test_scenarios
 
             Returns:
                 Test generation results
@@ -300,7 +301,8 @@ Complete Data (JSON):
             try:
                 result = await self.orchestrator.parse_curl_to_tests(
                     request.curl_command,
-                    request.output_dir
+                    request.output_dir,
+                    request.test_scenarios
                 )
                 
                 if result["success"]:
